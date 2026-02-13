@@ -25,11 +25,18 @@
 - Views are drawn by dedicated `draw*()` functions called from `loop()`
 - State variables are global, grouped and labeled by purpose
 
-## Dual Build Targets
+## Build Targets (keep all three in sync)
 - `src/main.cpp` — primary source of truth (PlatformIO / generic)
 - `arduino/RadarGizmo/RadarGizmo.ino` — Arduino IDE compatible copy
-- **When changing firmware code, always update both files.** The .ino is identical to main.cpp except for the extended header comment block with Arduino IDE library install and TFT_eSPI User_Setup.h instructions
-- If unsure, diff the two files after editing to verify they are in sync
+- `esphome/radar-gizmo.yaml` — ESPHome / Home Assistant version
+- **When changing firmware code, always update all three files.** The .ino is identical to main.cpp except for the extended header comment block. The ESPHome YAML replicates the same UI and sensor logic using ESPHome's display lambda and component system.
+- If unsure, diff the .cpp and .ino after editing to verify they are in sync. For the ESPHome YAML, verify that display views, sensor readings, and input handling match the firmware behavior.
+
+## Feature Parity
+- The bare-metal firmware (main.cpp / .ino) and the ESPHome version must stay at feature parity for display views, sensor data, and input handling
+- ESPHome may have *additional* features that are HA-specific (e.g., message display from HA, backlight control entity, radar config entities) — these do not need bare-metal equivalents
+- If a proposed change to one version cannot be reasonably implemented in the other (e.g., a custom rendering technique not possible in ESPHome lambdas, or an ESPHome component with no bare-metal library), **flag it to the user before proceeding** so we can decide how to handle the divergence
+- Pin mapping and hardware assumptions must always be identical across all versions
 
 ## Conventions
 - Colors use 16-bit RGB565 format with `C_` prefix (e.g., `C_BG`, `C_ALERT`)

@@ -1,0 +1,409 @@
+# Radar Gizmo — ESPHome Configuration
+#
+# ESP32-C3 Super Mini + LD2410B + 2.0" ST7789 TFT + EC11 Encoder
+#
+# Pin Mapping (same as firmware version):
+#   Display PCB Header: GND|VDD|SCL|SDA|RES|DC|CS|BLK|A|B|PUSH|K0
+#   ESP32-C3 GPIO:       -  3V3  4   6   3   5  7  10 1 0  2    9
+#   LD2410B: TX→GPIO20, RX→GPIO21
+#
+# Install: Copy this file into your ESPHome config directory and flash.
+# Home Assistant will auto-discover all entities.
+
+esphome:
+  name: radar-gizmo
+  friendly_name: Radar Gizmo
+  on_boot:
+    priority: -100
+    then:
+      - lambda: |-
+          id(display_message) = "";
+          id(display_message_expiry) = 0;
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: arduino
+
+# --- Network ---
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Radar-Gizmo-AP"
+    password: "radargizmo"
+
+captive_portal:
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+  services:
+    # HA can call this service to display a message on the screen
+    - service: show_message
+      variables:
+        message: string
+        duration_seconds: int
+      then:
+        - lambda: |-
+            id(display_message) = message;
+            if (duration_seconds > 0) {
+              id(display_message_expiry) = millis() + (duration_seconds * 1000);
+            } else {
+              id(display_message_expiry) = 0;  // Persistent until cleared
+            }
+    - service: clear_message
+      then:
+        - lambda: |-
+            id(display_message) = "";
+            id(display_message_expiry) = 0;
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+logger:
+  level: DEBUG
+
+# --- Globals for display state ---
+globals:
+  - id: current_view
+    type: int
+    initial_value: "0"
+  - id: display_message
+    type: std::string
+    initial_value: '""'
+  - id: display_message_expiry
+    type: unsigned long
+    initial_value: "0"
+
+# --- SPI Bus ---
+spi:
+  clk_pin: GPIO4
+  mosi_pin: GPIO6
+
+# --- Display (ST7789 2.0" 320x240) ---
+display:
+  - platform: ili9xxx
+    model: ST7789V
+    id: tft_display
+    cs_pin: GPIO7
+    dc_pin: GPIO5
+    reset_pin: GPIO3
+    dimensions:
+      width: 240
+      height: 320
+    transform:
+      swap_xy: true
+      mirror_x: true
+    update_interval: 100ms
+    lambda: |-
+      int w = it.get_width();
+      int h = it.get_height();
+
+      // Check if HA message should be cleared
+      if (id(display_message_expiry) > 0 && millis() > id(display_message_expiry)) {
+        id(display_message) = "";
+        id(display_message_expiry) = 0;
+      }
+
+      // --- View 2: HA Message Overlay ---
+      if (!id(display_message).empty()) {
+        it.fill(Color(0, 0, 0));
+
+        // Header
+        it.printf(10, 8, id(font_small), Color(255, 255, 255), "MESSAGE FROM HOME");
+
+        // Connection dot
+        if (id(wifi_connected).state) {
+          it.filled_circle(w - 20, 14, 4, Color(0, 255, 0));
+        } else {
+          it.filled_circle(w - 20, 14, 4, Color(255, 0, 0));
+        }
+
+        // Divider line
+        it.horizontal_line(10, 28, w - 20, Color(0, 180, 255));
+
+        // Message text (word-wrapped manually by ESPHome line length)
+        it.printf(w / 2, h / 2, id(font_large), TextAlign::CENTER, Color(0, 180, 255),
+                  "%s", id(display_message).c_str());
+
+        // Footer
+        if (id(display_message_expiry) > 0) {
+          int secs_left = (id(display_message_expiry) - millis()) / 1000;
+          it.printf(w / 2, h - 10, id(font_small), TextAlign::BOTTOM_CENTER,
+                    Color(128, 128, 128), "Auto-clear in %ds", secs_left);
+        } else {
+          it.printf(w / 2, h - 10, id(font_small), TextAlign::BOTTOM_CENTER,
+                    Color(128, 128, 128), "[Push] to dismiss");
+        }
+        return;
+      }
+
+      // --- View 0: Dashboard ---
+      if (id(current_view) == 0) {
+        it.fill(Color(0, 0, 0));
+
+        // Header
+        it.printf(10, 8, id(font_small), Color(255, 255, 255), "RADAR GIZMO");
+
+        // Connection dot (green=connected to HA, red=disconnected)
+        if (id(wifi_connected).state) {
+          it.filled_circle(w - 20, 14, 4, Color(0, 255, 0));
+        } else {
+          it.filled_circle(w - 20, 14, 4, Color(255, 0, 0));
+        }
+
+        // Presence status
+        if (id(ld2410_presence).state) {
+          it.printf(10, 50, id(font_large), Color(255, 0, 0), "TARGET");
+          it.printf(10, 80, id(font_large), Color(255, 0, 0), "DETECTED");
+
+          // Distances
+          int y = 115;
+          if (id(ld2410_moving_distance).state > 0) {
+            it.printf(10, y, id(font_small), Color(255, 255, 255),
+                      "MOV: %.0fcm", id(ld2410_moving_distance).state);
+            y += 20;
+          }
+          if (id(ld2410_still_distance).state > 0) {
+            it.printf(10, y, id(font_small), Color(255, 255, 255),
+                      "STA: %.0fcm", id(ld2410_still_distance).state);
+          }
+        } else {
+          it.printf(10, 50, id(font_large), Color(0, 255, 0), "AREA");
+          it.printf(10, 80, id(font_large), Color(0, 255, 0), "CLEAR");
+        }
+
+        // Energy bars (right side)
+        int bar_w = 24;
+        int bar_max_h = 120;
+        int bar_bottom = 195;
+
+        float move_e = id(ld2410_moving_energy).state;
+        float still_e = id(ld2410_still_energy).state;
+
+        // Moving bar
+        int mx = w - 94;
+        int mh = (int)(move_e / 100.0 * bar_max_h);
+        it.rectangle(mx, bar_bottom - bar_max_h, bar_w, bar_max_h, Color(255, 255, 255));
+        it.filled_rectangle(mx, bar_bottom - mh, bar_w, mh, Color(255, 100, 100));
+        it.printf(mx + bar_w / 2, bar_bottom + 4, id(font_tiny), TextAlign::TOP_CENTER,
+                  Color(255, 100, 100), "%.0f%%", move_e);
+        it.printf(mx + bar_w / 2, bar_bottom + 16, id(font_tiny), TextAlign::TOP_CENTER,
+                  Color(255, 100, 100), "MOV");
+
+        // Still bar
+        int sx = w - 54;
+        int sh = (int)(still_e / 100.0 * bar_max_h);
+        it.rectangle(sx, bar_bottom - bar_max_h, bar_w, bar_max_h, Color(255, 255, 255));
+        it.filled_rectangle(sx, bar_bottom - sh, bar_w, sh, Color(0, 200, 255));
+        it.printf(sx + bar_w / 2, bar_bottom + 4, id(font_tiny), TextAlign::TOP_CENTER,
+                  Color(0, 200, 255), "%.0f%%", still_e);
+        it.printf(sx + bar_w / 2, bar_bottom + 16, id(font_tiny), TextAlign::TOP_CENTER,
+                  Color(0, 200, 255), "STA");
+
+        // Footer
+        it.printf(w / 2, h - 4, id(font_tiny), TextAlign::BOTTOM_CENTER,
+                  Color(128, 128, 128), "[Turn] View  [K0] Toggle");
+
+      // --- View 1: Engineering Data ---
+      } else {
+        it.fill(Color(0, 0, 0));
+
+        it.printf(10, 8, id(font_small), Color(255, 255, 255), "RAW SENSOR DATA");
+
+        if (id(wifi_connected).state) {
+          it.filled_circle(w - 20, 14, 4, Color(0, 255, 0));
+        } else {
+          it.filled_circle(w - 20, 14, 4, Color(255, 0, 0));
+        }
+
+        int y = 38;
+        int lh = 22;
+
+        it.printf(10, y, id(font_small), Color(255, 255, 255),
+                  "Detection: %s", id(ld2410_presence).state ? "YES" : "NO");
+        y += lh + 6;
+
+        it.printf(10, y, id(font_small), Color(255, 100, 100), "MOVING TARGET");
+        y += lh;
+        it.printf(10, y, id(font_small), Color(255, 255, 255),
+                  "  Dist: %.0f cm", id(ld2410_moving_distance).state);
+        y += lh;
+        it.printf(10, y, id(font_small), Color(255, 255, 255),
+                  "  Energy: %.0f%%", id(ld2410_moving_energy).state);
+        y += lh + 6;
+
+        it.printf(10, y, id(font_small), Color(0, 200, 255), "STATIC TARGET");
+        y += lh;
+        it.printf(10, y, id(font_small), Color(255, 255, 255),
+                  "  Dist: %.0f cm", id(ld2410_still_distance).state);
+        y += lh;
+        it.printf(10, y, id(font_small), Color(255, 255, 255),
+                  "  Energy: %.0f%%", id(ld2410_still_energy).state);
+        y += lh + 10;
+
+        it.printf(10, y, id(font_small), Color(128, 128, 128), "WiFi: %s",
+                  id(wifi_ip).state.c_str());
+
+        it.printf(w / 2, h - 4, id(font_tiny), TextAlign::BOTTOM_CENTER,
+                  Color(128, 128, 128), "[Turn] View  [K0] Toggle");
+      }
+
+# --- Fonts ---
+font:
+  - file: "gfonts://Roboto"
+    id: font_large
+    size: 24
+  - file: "gfonts://Roboto"
+    id: font_small
+    size: 14
+  - file: "gfonts://Roboto"
+    id: font_tiny
+    size: 10
+
+# --- Backlight Control ---
+output:
+  - platform: ledc
+    pin: GPIO10
+    id: backlight_pwm
+
+light:
+  - platform: monochromatic
+    output: backlight_pwm
+    name: "Display Backlight"
+    id: backlight
+    restore_mode: ALWAYS_ON
+
+# --- LD2410B Radar Sensor ---
+uart:
+  tx_pin: GPIO21
+  rx_pin: GPIO20
+  baud_rate: 256000
+  parity: NONE
+  stop_bits: 1
+
+ld2410:
+  id: ld2410_radar
+
+sensor:
+  - platform: ld2410
+    moving_distance:
+      name: "Moving Target Distance"
+      id: ld2410_moving_distance
+    still_distance:
+      name: "Still Target Distance"
+      id: ld2410_still_distance
+    moving_energy:
+      name: "Moving Target Energy"
+      id: ld2410_moving_energy
+    still_energy:
+      name: "Still Target Energy"
+      id: ld2410_still_energy
+    detection_distance:
+      name: "Detection Distance"
+
+  # WiFi signal strength (useful for HA dashboard)
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 60s
+
+binary_sensor:
+  - platform: ld2410
+    has_target:
+      name: "Presence"
+      id: ld2410_presence
+    has_moving_target:
+      name: "Moving Target"
+    has_still_target:
+      name: "Still Target"
+
+  # WiFi connected status (for display dot)
+  - platform: status
+    name: "Status"
+    id: wifi_connected
+
+  # Encoder push button — dismiss messages
+  - platform: gpio
+    pin:
+      number: GPIO2
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Encoder Button"
+    id: encoder_button
+    on_press:
+      then:
+        - lambda: |-
+            if (!id(display_message).empty()) {
+              id(display_message) = "";
+              id(display_message_expiry) = 0;
+            }
+
+  # K0 button — toggle view
+  - platform: gpio
+    pin:
+      number: GPIO9
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "K0 Button"
+    id: k0_button
+    on_press:
+      then:
+        - lambda: |-
+            id(current_view) = (id(current_view) == 0) ? 1 : 0;
+
+# --- Rotary Encoder (view switching) ---
+sensor:
+  - platform: rotary_encoder
+    name: "Encoder"
+    id: encoder
+    pin_a:
+      number: GPIO1
+      mode: INPUT_PULLUP
+    pin_b:
+      number: GPIO0
+      mode: INPUT_PULLUP
+    min_value: 0
+    max_value: 1
+    on_value:
+      then:
+        - lambda: |-
+            id(current_view) = (int)x;
+
+# --- Onboard LED (Heartbeat) ---
+status_led:
+  pin:
+    number: GPIO8
+    inverted: true
+
+# --- Text Sensors ---
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
+      id: wifi_ip
+
+# --- LD2410 Configuration Buttons (exposed to HA) ---
+button:
+  - platform: ld2410
+    restart:
+      name: "Radar Restart"
+    factory_reset:
+      name: "Radar Factory Reset"
+
+switch:
+  - platform: ld2410
+    engineering_mode:
+      name: "Radar Engineering Mode"
+    bluetooth:
+      name: "Radar Bluetooth"
+
+number:
+  - platform: ld2410
+    timeout:
+      name: "Radar Timeout"
+    max_move_distance_gate:
+      name: "Radar Max Move Gate"
+    max_still_distance_gate:
+      name: "Radar Max Still Gate"
