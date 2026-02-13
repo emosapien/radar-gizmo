@@ -1,21 +1,56 @@
 # Radar Gizmo
 
-ESP32-C3 Super Mini mmWave presence detection dashboard using the LD2410B sensor and an ST7789 TFT display.
+A compact mmWave presence detection dashboard built on the ESP32-C3 Super Mini. Uses a 24GHz LD2410B radar sensor and a 2.0" TFT display with integrated rotary encoder for a self-contained, interactive radar device.
+
+Available as bare-metal firmware (Arduino/PlatformIO) or as an ESPHome device with full Home Assistant integration.
+
+## Table of Contents
+
+- [Features](#features)
+- [Hardware](#hardware)
+- [Pin Mapping](#pin-mapping)
+- [Firmware Versions](#firmware-versions)
+- [Breadboard Prototype](#breadboard-prototype)
+- [Flashing & Setup](#flashing--setup)
+- [Project Structure](#project-structure)
+
+---
+
+## Features
+
+**Display UI**
+- **Dashboard View** — Live presence status, target distances (moving + stationary), energy level bars, animated radar sweep
+- **Engineering View** — Raw sensor data readout (distances, energy percentages, firmware version, network info)
+- Rotary encoder and K0 button to switch between views
+- Double-buffered sprite rendering (flicker-free, 20fps)
+
+**Sensor**
+- LD2410B 24GHz mmWave radar — detects presence, movement, and distance through walls, glass, and plastic enclosures
+- Separate moving and stationary target tracking with energy levels
+
+**ESPHome Extras** (Home Assistant version only)
+- All sensor data auto-discovered in Home Assistant
+- Send messages to the display from HA automations (`esphome.radar_gizmo_show_message`)
+- Display backlight exposed as a dimmable light entity
+- Radar configuration controls (timeout, gate distances, engineering mode)
+
+---
 
 ## Hardware
 
+### Bill of Materials
+
 | Component | Model | Spec |
 |-----------|-------|------|
-| MCU | ESP32-C3 Super Mini | RISC-V, 160MHz, 400KB SRAM |
+| MCU | ESP32-C3 Super Mini | RISC-V, 160MHz, 400KB SRAM, WiFi/BLE |
 | Radar Sensor | HiLink LD2410B | 24GHz mmWave, UART 256000 baud |
-| Display Module | baishundianzi 2.0" TFT + EC11 | ST7789, 320x240 RGB, SPI |
+| Display Module | baishundianzi 2.0" TFT + EC11 | ST7789, 320x240 RGB, SPI, 65x42mm |
 | Input | EC11 Rotary Encoder (on display PCB) | Quadrature A/B + Push button |
-| Extra Button | K0 (on display PCB) | Momentary, shared with BOOT/GPIO 9 |
+| Extra Button | K0 (on display PCB) | Momentary switch |
 
 ### Display Module PCB
 
-The display and encoder are integrated on a single 65mm x 42mm PCB (baishundianzi 2.0-inch model).
-The PCB exposes a single pin header with the following order:
+The display and encoder are integrated on a single 65mm x 42mm PCB (baishundianzi 2.0-inch model). The PCB exposes a single 12-pin header:
 
 ```
 GND | VDD | SCL | SDA | RES | DC | CS | BLK | A | B | PUSH | K0
@@ -24,48 +59,7 @@ GND | VDD | SCL | SDA | RES | DC | CS | BLK | A | B | PUSH | K0
 - **BLK** is fully enabled by default on the PCB — can be left unconnected if no brightness control is needed
 - **K0** is an independent momentary button on the PCB (labeled KEY0)
 
-## Pin Mapping
-
-### TFT ST7789
-| Signal | GPIO |
-|--------|------|
-| SCL (Clock) | 4 |
-| SDA (MOSI) | 6 |
-| RES (Reset) | 3 |
-| DC (Data/Command) | 5 |
-| CS (Chip Select) | 7 |
-| BLK (Backlight) | 10 |
-
-### LD2410B Sensor
-| Signal | GPIO |
-|--------|------|
-| TX | 21 |
-| RX | 20 |
-
-### EC11 Rotary Encoder
-| Signal | GPIO | Note |
-|--------|------|------|
-| Phase A | 1 | |
-| Phase B | 0 | |
-| Push Button | 2 | Strapping pin — do not hold during boot |
-
-### Other
-| Signal | GPIO | Note |
-|--------|------|------|
-| K0 (Extra Key) | 9 | Shared with BOOT button — strapping pin |
-| Onboard LED | 8 | Active LOW |
-
-## Breadboard Prototype Layout
-
-### Parts
-
-- 1x 400-pin half-size breadboard (30 rows)
-- 1x ESP32-C3 Super Mini
-- 1x baishundianzi 2.0" TFT+EC11 display module (12-pin header)
-- 1x LD2410B radar sensor module
-- Jumper wires
-
-### ESP32-C3 Super Mini Pinout Reference
+### ESP32-C3 Super Mini Pinout
 
 ```
               ┌─────────┐
@@ -81,11 +75,91 @@ GND | VDD | SCL | SDA | RES | DC | CS | BLK | A | B | PUSH | K0
               └─────────┘
 ```
 
-### Breadboard Diagram
+### Strapping Pin Warning
 
-The ESP32-C3 straddles the center gap at the top. The display module header and
-LD2410B sensor plug into rows below it. USB port faces off the top edge of the
-breadboard for easy access.
+GPIO 2 (encoder push) and GPIO 9 (K0 button) are strapping pins. If either is held LOW during power-on or USB plug-in, the board enters download mode (black screen). Press reset or re-plug to recover.
+
+---
+
+## Pin Mapping
+
+### Complete Wiring Reference
+
+| Signal | ESP32 GPIO | PCB Pin | Function |
+|--------|-----------|---------|----------|
+| SPI Clock | 4 | SCL | TFT display clock |
+| SPI MOSI | 6 | SDA | TFT display data |
+| TFT Reset | 3 | RES | Display reset |
+| TFT DC | 5 | DC | Data/command select |
+| TFT CS | 7 | CS | Chip select (active LOW) |
+| Backlight | 10 | BLK | Display backlight (PWM capable) |
+| Encoder A | 1 | A | Rotary encoder phase A |
+| Encoder B | 0 | B | Rotary encoder phase B |
+| Encoder Push | 2 | PUSH | Encoder button (strapping pin) |
+| K0 Button | 9 | K0 | Extra button (strapping pin) |
+| Radar RX | 20 | — | LD2410B TX → ESP32 RX |
+| Radar TX | 21 | — | ESP32 TX → LD2410B RX |
+| Onboard LED | 8 | — | Blue LED, active LOW |
+
+---
+
+## Firmware Versions
+
+Three implementations are maintained at feature parity for display and sensor behavior.
+
+### Bare-Metal Firmware (`src/main.cpp`)
+
+The primary source of truth. Single-file C++ firmware using TFT_eSPI, LD2410, and RotaryEncoder libraries. Sprite double-buffered rendering, non-blocking input handling, no WiFi overhead.
+
+**Best for:** Lowest latency, no network dependency, standalone operation.
+
+**Dependencies:**
+- [TFT_eSPI](https://github.com/Bodmer/TFT_eSPI) by Bodmer
+- [ld2410](https://github.com/ncmreynolds/ld2410) by ncmreynolds
+- [RotaryEncoder](https://github.com/mathertel/RotaryEncoder) by Matthias Hertel
+
+### Arduino IDE Version (`arduino/RadarGizmo/RadarGizmo.ino`)
+
+Identical code to `src/main.cpp`, packaged as an Arduino sketch with setup instructions in the header comment (library installs, TFT_eSPI `User_Setup.h` configuration).
+
+**Best for:** Users who prefer the Arduino IDE workflow.
+
+**Arduino IDE Settings:**
+- **Board:** ESP32C3 Dev Module
+- **USB CDC On Boot:** Enabled (required for Serial Monitor)
+- **Flash Mode:** DIO
+- **JTAG Adapter:** Integrated USB JTAG
+
+### ESPHome Version (`esphome/radar-gizmo.yaml`)
+
+Full ESPHome configuration with the same display views reimplemented in display lambdas. Adds Home Assistant integration.
+
+**Best for:** Home Assistant users who want sensor data in HA and the ability to send messages to the display.
+
+**ESPHome-exclusive features:**
+- All LD2410 sensors as HA entities (presence, distances, energy levels)
+- `esphome.radar_gizmo_show_message` service — push text to the display with optional auto-clear duration
+- `esphome.radar_gizmo_clear_message` service — dismiss displayed message
+- Display backlight as a dimmable HA light entity
+- Radar config controls (timeout, gate distances, engineering mode, Bluetooth toggle)
+- WiFi signal strength sensor
+- OTA updates from ESPHome dashboard
+
+---
+
+## Breadboard Prototype
+
+### Parts List
+
+- 1x 400-pin half-size breadboard (30 rows)
+- 1x ESP32-C3 Super Mini
+- 1x baishundianzi 2.0" TFT+EC11 display module (12-pin header)
+- 1x LD2410B radar sensor module
+- 16x jumper wires
+
+### Layout Diagram
+
+The ESP32-C3 straddles the center gap at the top. The LD2410B sits in the middle section. The display module header plugs into the bottom. USB port faces off the top edge for easy access.
 
 ```
         (-)  (a)(b)(c)(d)(e)  (f)(g)(h)(i)(j)  (+)
@@ -158,27 +232,56 @@ breadboard for easy access.
 4. **Wire the display module last** — 12 wires, work left-to-right through the header
 5. **Do not press K0 or the encoder button while plugging in USB** — strapping pins will enter download mode
 
-## Strapping Pin Warning
+---
 
-GPIO 2 and GPIO 9 are strapping pins. If either is held LOW during power-on or USB plug-in, the board enters download mode (black screen). Press reset or re-plug to recover.
+## Flashing & Setup
 
-## Arduino IDE Settings
+### Bare-Metal (PlatformIO)
 
-- **Board:** ESP32C3 Dev Module
-- **USB CDC On Boot:** Enabled (required for Serial Monitor)
-- **Flash Mode:** DIO
-- **JTAG Adapter:** Integrated USB JTAG
+```bash
+# Clone and flash
+git clone https://github.com/emosapien/radar-gizmo.git
+cd radar-gizmo
+# Add platformio.ini and configure TFT_eSPI, then:
+pio run -t upload
+```
 
-## Dependencies
+### Bare-Metal (Arduino IDE)
 
-- [TFT_eSPI](https://github.com/Bodmer/TFT_eSPI)
-- [LD2410](https://github.com/ncmreynolds/ld2410)
-- [RotaryEncoder](https://github.com/mathertel/RotaryEncoder)
+1. Open `arduino/RadarGizmo/RadarGizmo.ino`
+2. Install libraries via Library Manager: **TFT_eSPI**, **ld2410**, **RotaryEncoder**
+3. Edit TFT_eSPI `User_Setup.h` (see header comment in .ino file for exact values)
+4. Select board **ESP32C3 Dev Module**, enable **USB CDC On Boot**, set **Flash Mode: DIO**
+5. Upload
 
-## Features
+### ESPHome
 
-- **Dashboard View** — Live presence status, target distance, moving/stationary energy bars, radar sweep animation
-- **Engineering View** — Raw sensor data readout (distances, energy levels, firmware version)
-- Rotary encoder and K0 button to switch between views
-- Heartbeat LED blink for liveness indication
-- Double-buffered sprite rendering (flicker-free)
+1. Flash a base ESPHome image to the ESP32-C3 via USB (first time only)
+2. In the ESPHome dashboard, create a new device and paste the contents of `esphome/radar-gizmo.yaml`
+3. Add your WiFi credentials and API key to your `secrets.yaml`
+4. Install OTA — all future updates go over WiFi
+5. The device auto-discovers in Home Assistant
+
+---
+
+## Project Structure
+
+```
+radar-gizmo/
+├── src/
+│   └── main.cpp                 # Primary firmware (PlatformIO)
+├── arduino/
+│   └── RadarGizmo/
+│       └── RadarGizmo.ino       # Arduino IDE version
+├── esphome/
+│   └── radar-gizmo.yaml         # ESPHome / Home Assistant version
+├── CLAUDE.md                    # Project rules and conventions
+├── README.md                    # This file
+└── .gitignore
+```
+
+---
+
+## License
+
+This project is open source. Feel free to use, modify, and share.
