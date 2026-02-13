@@ -1,0 +1,26 @@
+# Build artifacts
+.pio/
+build/
+*.o
+*.elf
+*.bin
+*.hex
+*.map
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# PlatformIO
+.pioenvs/
+.piolibdeps/
+
+# Documentation PDFs (large binaries)
+*.pdf
