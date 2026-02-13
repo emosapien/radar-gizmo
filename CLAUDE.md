@@ -25,6 +25,12 @@
 - Views are drawn by dedicated `draw*()` functions called from `loop()`
 - State variables are global, grouped and labeled by purpose
 
+## Dual Build Targets
+- `src/main.cpp` — primary source of truth (PlatformIO / generic)
+- `arduino/RadarGizmo/RadarGizmo.ino` — Arduino IDE compatible copy
+- **When changing firmware code, always update both files.** The .ino is identical to main.cpp except for the extended header comment block with Arduino IDE library install and TFT_eSPI User_Setup.h instructions
+- If unsure, diff the two files after editing to verify they are in sync
+
 ## Conventions
 - Colors use 16-bit RGB565 format with `C_` prefix (e.g., `C_BG`, `C_ALERT`)
 - Pin constants use `PIN_` prefix
