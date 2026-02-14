@@ -22,7 +22,7 @@ Available as bare-metal firmware (Arduino/PlatformIO) or as an ESPHome device wi
 - **Dashboard View** — Live presence status, target distances (moving + stationary), energy level bars, animated radar sweep
 - **Engineering View** — Raw sensor data readout (distances, energy percentages, firmware version, network info)
 - Rotary encoder and K0 button to switch between views
-- Double-buffered sprite rendering (flicker-free, 20fps)
+- Double-buffered sprite rendering in bare-metal firmware (flicker-free, 20fps); ESPHome uses direct rendering at 10fps
 
 **Sensor**
 - LD2410B 24GHz mmWave radar — detects presence, movement, and distance through walls, glass, and plastic enclosures
@@ -132,7 +132,7 @@ Identical code to `src/main.cpp`, packaged as an Arduino sketch with setup instr
 
 ### ESPHome Version (`esphome/radar-gizmo.yaml`)
 
-Full ESPHome configuration with the same display views reimplemented in display lambdas. Adds Home Assistant integration.
+Full ESPHome configuration with the same display views reimplemented in display lambdas, including the animated radar sweep. Adds Home Assistant integration.
 
 **Best for:** Home Assistant users who want sensor data in HA and the ability to send messages to the display.
 

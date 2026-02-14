@@ -76,6 +76,12 @@ globals:
   - id: display_message_expiry
     type: unsigned long
     initial_value: "0"
+  - id: sweep_angle
+    type: int
+    initial_value: "0"
+  - id: sweep_dir
+    type: int
+    initial_value: "1"
 
 # --- SPI Bus ---
 spi:
@@ -202,6 +208,33 @@ display:
                   Color(0, 200, 255), "%.0f%%", still_e);
         it.printf(sx + bar_w / 2, bar_bottom + 16, id(font_tiny), TextAlign::TOP_CENTER,
                   Color(0, 200, 255), "STA");
+
+        // --- Radar sweep animation (bottom-left arc) ---
+        id(sweep_angle) += 4 * id(sweep_dir);
+        if (id(sweep_angle) > 60) id(sweep_dir) = -1;
+        if (id(sweep_angle) < -60) id(sweep_dir) = 1;
+
+        int arc_cx = 100;
+        int arc_cy = h + 30;  // Center below screen edge for half-arc look
+        int arc_r = 80;
+
+        // Draw range rings (dotted arcs)
+        for (int r = 30; r <= arc_r; r += 25) {
+          for (int a = -60; a <= 60; a += 3) {
+            float rad = (a - 90) * 3.14159265f / 180.0f;
+            int px = arc_cx + (int)(cos(rad) * r);
+            int py = arc_cy + (int)(sin(rad) * r);
+            if (py < h) {
+              it.draw_pixel_at(px, py, Color(24, 56, 24));
+            }
+          }
+        }
+
+        // Sweep line
+        float sweep_rad = (id(sweep_angle) - 90) * 3.14159265f / 180.0f;
+        int end_x = arc_cx + (int)(cos(sweep_rad) * arc_r);
+        int end_y = arc_cy + (int)(sin(sweep_rad) * arc_r);
+        it.line(arc_cx, arc_cy, end_x, end_y, Color(51, 51, 51));
 
         // Footer
         it.printf(w / 2, h - 4, id(font_tiny), TextAlign::BOTTOM_CENTER,
@@ -354,7 +387,6 @@ binary_sensor:
             id(current_view) = (id(current_view) == 0) ? 1 : 0;
 
 # --- Rotary Encoder (view switching) ---
-sensor:
   - platform: rotary_encoder
     name: "Encoder"
     id: encoder
