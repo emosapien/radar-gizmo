@@ -64,14 +64,14 @@ GND | VDD | SCL | SDA | RES | DC | CS | BLK | A | B | PUSH | K0
 ```
               ┌─────────┐
               │  USB-C  │
-         5V ──┤ o     o ├── GPIO5
-        GND ──┤ o     o ├── GPIO6
-        3V3 ──┤ o     o ├── GPIO7
-      GPIO4 ──┤ o     o ├── GPIO8  (LED)
-      GPIO3 ──┤ o     o ├── GPIO9  (BOOT)
-      GPIO2 ──┤ o     o ├── GPIO10
-      GPIO1 ──┤ o     o ├── GPIO20
-      GPIO0 ──┤ o     o ├── GPIO21
+      GPIO5 ──┤ o     o ├── 5V
+      GPIO6 ──┤ o     o ├── GND
+      GPIO7 ──┤ o     o ├── 3V3
+ (LED) GPIO8 ──┤ o     o ├── GPIO4
+(BOOT) GPIO9 ──┤ o     o ├── GPIO3
+     GPIO10 ──┤ o     o ├── GPIO2
+     GPIO20 ──┤ o     o ├── GPIO1
+     GPIO21 ──┤ o     o ├── GPIO0
               └─────────┘
 ```
 
@@ -159,78 +159,107 @@ Full ESPHome configuration with the same display views reimplemented in display 
 
 ### Layout Diagram
 
-The ESP32-C3 straddles the center gap at the top. The LD2410B sits in the middle section. The display module header plugs into the bottom. USB port faces off the top edge for easy access.
+The ESP32-C3 straddles the center gap at the top of the breadboard with USB-C hanging off the top edge. Power and ground pins are on the right side. The LD2410B sits in the middle. The display module header plugs into the bottom rows.
 
 ```
         (-)  (a)(b)(c)(d)(e)  (f)(g)(h)(i)(j)  (+)
          ═══════════════════════════════════════════
   Row 1  ─ ─  ─── ESP32-C3 Super Mini ─────────  ─ ─    ← USB-C hangs off top edge
-  Row 2  ─ ─  [5V ] . . . .  [GP5] . . . .     ─ ─
-  Row 3  ─ ─  [GND] . ◄─┐ .  [GP6] . . . .     ─ ─    GND → (-) rail
-  Row 4  ─ ─  [3V3] . . │ .  [GP7] . . . .     ─ ─    3V3 → (+) rail
-  Row 5  ─ ─  [GP4] . . │ .  [GP8] . . . .     ─ ─
-  Row 6  ─ ─  [GP3] . . │ .  [GP9] . . . .     ─ ─
-  Row 7  ─ ─  [GP2] . . │ .  [G10] . . . .     ─ ─
-  Row 8  ─ ─  [GP1] . . │ .  [G20] . . . .     ─ ─
-  Row 9  ─ ─  [GP0] . . │ .  [G21] . . . .     ─ ─
-         ─────────────── │ ─────────────────────────
-  Row 10 ─ ─  . . . . .  │  . . . . .           ─ ─    (empty spacer row)
-         ─────────────── │ ─────────────────────────
-                         │
-         ── LD2410B ─────│──────────────────────────
-  Row 11 ─ ─  . . . . .  │  . . . . .           ─ ─
-  Row 12 ─ ─  [VCC]◄─────┼──────────────────────(+)    LD2410B VCC → 3V3 rail
-  Row 13 ─ ─  [GND]◄─────┼──────────────────────(-)    LD2410B GND → GND rail
-  Row 14 ─ ─  [TX ]──────┼──wire to row 8 (f)── ─ ─    LD2410B TX → ESP GPIO20
-  Row 15 ─ ─  [RX ]──────┼──wire to row 9 (f)── ─ ─    LD2410B RX → ESP GPIO21
-  Row 16 ─ ─  . . . . .  │  . . . . .           ─ ─
-         ─────────────── │ ─────────────────────────
-                         │
-         ── Display PCB ─│── (12-pin header) ───────
-         Pin: GND VDD SCL SDA RES DC  CS  BLK A  B  PSH K0
-  Row 19 ─ ─  [GND]◄─────┼──────────────────────(-)    → GND rail
-  Row 20 ─ ─  [VDD]◄─────┘──────────────────────(+)    → 3V3 rail
-  Row 21 ─ ─  [SCL]─────── wire to row 5 (a) ── ─ ─    → ESP GPIO4
-  Row 22 ─ ─  [SDA]─────── wire to row 3 (f) ── ─ ─    → ESP GPIO6
-  Row 23 ─ ─  [RES]─────── wire to row 6 (a) ── ─ ─    → ESP GPIO3
-  Row 24 ─ ─  [DC ]─────── wire to row 2 (f) ── ─ ─    → ESP GPIO5
-  Row 25 ─ ─  [CS ]─────── wire to row 4 (f) ── ─ ─    → ESP GPIO7
-  Row 26 ─ ─  [BLK]─────── wire to row 7 (f) ── ─ ─    → ESP GPIO10
-  Row 27 ─ ─  [A  ]─────── wire to row 8 (a) ── ─ ─    → ESP GPIO1
-  Row 28 ─ ─  [B  ]─────── wire to row 9 (a) ── ─ ─    → ESP GPIO0
-  Row 29 ─ ─  [PSH]─────── wire to row 7 (a) ── ─ ─    → ESP GPIO2
-  Row 30 ─ ─  [K0 ]─────── wire to row 6 (f) ── ─ ─    → ESP GPIO9
+  Row 2  ─ ─  [GP5] . . . .  [ 5V] . . . .     ─ ─
+  Row 3  ─ ─  [GP6] . . . .  [GND] . . ─┐►     (-)    GND → (-) rail
+  Row 4  ─ ─  [GP7] . . . .  [3V3] . . ─┘►     (+)    3V3 → (+) rail
+  Row 5  ─ ─  [GP8] . . . .  [GP4] . . . .     ─ ─
+  Row 6  ─ ─  [GP9] . . . .  [GP3] . . . .     ─ ─
+  Row 7  ─ ─  [G10] . . . .  [GP2] . . . .     ─ ─
+  Row 8  ─ ─  [G20] . . . .  [GP1] . . . .     ─ ─
+  Row 9  ─ ─  [G21] . . . .  [GP0] . . . .     ─ ─
+         ═══════════════════════════════════════════
+  Row 10 ─ ─  . . . . . . .  . . . . . . .     ─ ─    (spacer)
+         ─────────────────────────────────────────────
+         ── LD2410B ──────────────────────────────────
+  Row 12 ─ ─  [VCC] . ◄─────────────────────────(+)    VCC → 3V3 rail
+  Row 13 ─ ─  [GND] . ◄─────────────────────────(-)    GND → GND rail
+  Row 14 ─ ─  [TX ] . ──── wire to row 8 (a) ── ─ ─    TX → ESP GPIO20
+  Row 15 ─ ─  [RX ] . ──── wire to row 9 (a) ── ─ ─    RX → ESP GPIO21
+         ─────────────────────────────────────────────
+  Row 17 ─ ─  . . . . . . .  . . . . . . .     ─ ─    (spacer)
+         ─────────────────────────────────────────────
+         ── Display PCB (12-pin header) ──────────────
+  Row 19 ─ ─  [GND] . ◄─────────────────────────(-)    → GND rail
+  Row 20 ─ ─  [VDD] . ◄─────────────────────────(+)    → 3V3 rail
+  Row 21 ─ ─  [SCL] . ──── wire to row 5 (g) ── ─ ─    → ESP GPIO4
+  Row 22 ─ ─  [SDA] . ──── wire to row 3 (a) ── ─ ─    → ESP GPIO6
+  Row 23 ─ ─  [RES] . ──── wire to row 6 (g) ── ─ ─    → ESP GPIO3
+  Row 24 ─ ─  [DC ] . ──── wire to row 2 (a) ── ─ ─    → ESP GPIO5
+  Row 25 ─ ─  [CS ] . ──── wire to row 4 (a) ── ─ ─    → ESP GPIO7
+  Row 26 ─ ─  [BLK] . ──── wire to row 7 (a) ── ─ ─    → ESP GPIO10
+  Row 27 ─ ─  [A  ] . ──── wire to row 8 (g) ── ─ ─    → ESP GPIO1
+  Row 28 ─ ─  [B  ] . ──── wire to row 9 (g) ── ─ ─    → ESP GPIO0
+  Row 29 ─ ─  [PSH] . ──── wire to row 7 (g) ── ─ ─    → ESP GPIO2
+  Row 30 ─ ─  [K0 ] . ──── wire to row 6 (a) ── ─ ─    → ESP GPIO9
          ═══════════════════════════════════════════
 ```
 
+**Reading the diagram:** The ESP32's left pins (cols a-e) are GPIO5-GPIO21. Its right pins (cols f-j) are 5V, GND, 3V3, GPIO4-GPIO0. Jumper wires connect to free columns on the same row as the target GPIO — use cols a-d for left-side pins, cols g-j for right-side pins.
+
 ### Wiring Summary
 
-| Wire | From | To | Color Suggestion |
-|------|------|----|-----------------|
-| Power | Row 3 col b (GND) | (-) rail | Black |
-| Power | Row 4 col b (3V3) | (+) rail | Red |
-| SPI CLK | Row 21 (SCL) | Row 5 col a (GPIO4) | Yellow |
-| SPI DATA | Row 22 (SDA) | Row 3 col f (GPIO6) | Blue |
-| TFT Reset | Row 23 (RES) | Row 6 col a (GPIO3) | White |
-| TFT DC | Row 24 (DC) | Row 2 col f (GPIO5) | Green |
-| TFT CS | Row 25 (CS) | Row 4 col f (GPIO7) | Orange |
-| Backlight | Row 26 (BLK) | Row 7 col f (GPIO10) | Purple |
-| Encoder A | Row 27 (A) | Row 8 col a (GPIO1) | Gray |
-| Encoder B | Row 28 (B) | Row 9 col a (GPIO0) | Gray |
-| Enc Push | Row 29 (PSH) | Row 7 col a (GPIO2) | Brown |
-| K0 Button | Row 30 (K0) | Row 6 col f (GPIO9) | Brown |
-| Radar TX | Row 14 (TX) | Row 8 col f (GPIO20) | Cyan |
-| Radar RX | Row 15 (RX) | Row 9 col f (GPIO21) | Cyan |
-| Radar VCC | Row 12 (VCC) | (+) rail | Red |
-| Radar GND | Row 13 (GND) | (-) rail | Black |
+**Power (2 wires)**
 
-### Assembly Notes
+| Wire | From | To | Color |
+|------|------|----|-------|
+| GND | ESP row 3 col i | (-) rail | Black |
+| 3V3 | ESP row 4 col i | (+) rail | Red |
 
-1. **Start with power** — wire GND and 3V3 from the ESP32 to the rails first
-2. **Seat the ESP32** with USB-C hanging off the top edge so you can plug in without removing it
-3. **Wire the LD2410B** next (only 4 wires) and test serial connection before adding the display
-4. **Wire the display module last** — 12 wires, work left-to-right through the header
-5. **Do not press K0 or the encoder button while plugging in USB** — strapping pins will enter download mode
+**LD2410B Radar (4 wires)**
+
+| Wire | From | To | Color |
+|------|------|----|-------|
+| VCC | Radar row 12 | (+) rail | Red |
+| GND | Radar row 13 | (-) rail | Black |
+| TX→RX | Radar row 14 | ESP row 8 col a (GPIO20) | Cyan |
+| RX←TX | Radar row 15 | ESP row 9 col a (GPIO21) | Cyan |
+
+**Display SPI (5 wires)**
+
+| Wire | From | To | Color |
+|------|------|----|-------|
+| SCL | Display row 21 | ESP row 5 col g (GPIO4) | Yellow |
+| SDA | Display row 22 | ESP row 3 col a (GPIO6) | Blue |
+| RES | Display row 23 | ESP row 6 col g (GPIO3) | White |
+| DC | Display row 24 | ESP row 2 col a (GPIO5) | Green |
+| CS | Display row 25 | ESP row 4 col a (GPIO7) | Orange |
+
+**Display Controls (5 wires)**
+
+| Wire | From | To | Color |
+|------|------|----|-------|
+| BLK | Display row 26 | ESP row 7 col a (GPIO10) | Purple |
+| A | Display row 27 | ESP row 8 col g (GPIO1) | Gray |
+| B | Display row 28 | ESP row 9 col g (GPIO0) | Gray |
+| PUSH | Display row 29 | ESP row 7 col g (GPIO2) | Brown |
+| K0 | Display row 30 | ESP row 6 col a (GPIO9) | Brown |
+
+**Display Power (2 wires)**
+
+| Wire | From | To | Color |
+|------|------|----|-------|
+| GND | Display row 19 | (-) rail | Black |
+| VDD | Display row 20 | (+) rail | Red |
+
+### Assembly Steps
+
+1. **Seat the ESP32-C3** straddling the center gap at the top of the breadboard. USB-C should hang off the top edge so you can plug in without removing the board.
+
+2. **Wire power first.** Run GND (row 3, right side) to the (-) rail and 3V3 (row 4, right side) to the (+) rail. Plug in USB and verify 3.3V on the (+) rail with a multimeter if you have one.
+
+3. **Wire the LD2410B next** (4 wires only). This is the easiest peripheral to test — once wired, uncomment the sensor code in the sketch and check the serial monitor for `LD2410 connected.`
+
+4. **Wire the display SPI lines** (5 wires: SCL, SDA, RES, DC, CS) and display power (GND, VDD). Uncomment the display init code and verify you get the boot splash on screen.
+
+5. **Wire the display controls last** (BLK, A, B, PUSH, K0). Test the encoder and buttons after connecting.
+
+6. **Strapping pin warning:** Do not hold the encoder button (GPIO2) or K0 (GPIO9) while plugging in USB or pressing reset — this forces the ESP into download mode.
 
 ---
 

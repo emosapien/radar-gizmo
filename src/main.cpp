@@ -18,7 +18,7 @@
 
 #include <SPI.h>
 #include <TFT_eSPI.h>
-#include <LD2410.h>
+#include <ld2410.h>
 #include <RotaryEncoder.h>
 
 // --- Pin Definitions ---
@@ -54,7 +54,7 @@
 // --- Objects ---
 TFT_eSPI tft = TFT_eSPI();
 TFT_eSprite spr = TFT_eSprite(&tft);
-LD2410 ld2410;
+ld2410 ld2410;
 RotaryEncoder encoder(PIN_ENC_A, PIN_ENC_B, RotaryEncoder::LatchMode::TWO03);
 
 // --- State ---
@@ -308,7 +308,7 @@ void drawEngineeringView() {
 
   // Firmware version
   spr.setTextColor(C_DIM, C_BG);
-  snprintf(buf, sizeof(buf), "FW: v%d.%d", ld2410.firmwareMajorVersion, ld2410.firmwareMinorVersion);
+  snprintf(buf, sizeof(buf), "FW: v%d.%d", ld2410.firmware_major_version, ld2410.firmware_minor_version);
   spr.drawString(buf, 10, y, 2);
 
   // Footer

@@ -38,47 +38,47 @@
 
 #include <SPI.h>
 #include <TFT_eSPI.h>
-#include <LD2410.h>
+#include <ld2410.h>
 #include <RotaryEncoder.h>
 
 // --- Pin Definitions ---
 #define PIN_LD2410_RX 20
 #define PIN_LD2410_TX 21
-#define PIN_ENC_A     1
-#define PIN_ENC_B     0
-#define PIN_ENC_BTN   2
-#define PIN_K0        9
-#define PIN_LED       8
-#define PIN_TFT_BL    10
+#define PIN_ENC_A 1
+#define PIN_ENC_B 0
+#define PIN_ENC_BTN 2
+#define PIN_K0 9
+#define PIN_LED 8
+#define PIN_TFT_BL 10
 
 // --- Display Constants ---
-#define SCREEN_W      320
-#define SCREEN_H      240
+#define SCREEN_W 320
+#define SCREEN_H 240
 
 // --- Colors (RGB565) ---
-#define C_BG          0x0000
-#define C_ACCENT      0x03EF
-#define C_ALERT       0xF800
-#define C_SAFE        0x07E0
-#define C_TEXT        0xFFFF
-#define C_DIM         0x7BEF
-#define C_BAR_MOV     0xFAAA
-#define C_BAR_STA     0x05FF
-#define C_SWEEP       0x3333
+#define C_BG 0x0000
+#define C_ACCENT 0x03EF
+#define C_ALERT 0xF800
+#define C_SAFE 0x07E0
+#define C_TEXT 0xFFFF
+#define C_DIM 0x7BEF
+#define C_BAR_MOV 0xFAAA
+#define C_BAR_STA 0x05FF
+#define C_SWEEP 0x3333
 
 // --- Timing ---
-#define UPDATE_INTERVAL_MS  50
-#define HEARTBEAT_MS        1000
-#define DEBOUNCE_MS         30
+#define UPDATE_INTERVAL_MS 50
+#define HEARTBEAT_MS 1000
+#define DEBOUNCE_MS 30
 
 // --- Objects ---
 TFT_eSPI tft = TFT_eSPI();
 TFT_eSprite spr = TFT_eSprite(&tft);
-LD2410 ld2410;
+ld2410 ld2410;
 RotaryEncoder encoder(PIN_ENC_A, PIN_ENC_B, RotaryEncoder::LatchMode::TWO03);
 
 // --- State ---
-int currentView = 0;           // 0 = Dashboard, 1 = Engineering
+int currentView = 0;  // 0 = Dashboard, 1 = Engineering
 unsigned long lastUpdate = 0;
 bool ledState = false;
 unsigned long lastBlink = 0;
@@ -102,39 +102,37 @@ void drawEngineeringView();
 
 void setup() {
   Serial.begin(115200);
+  delay(2000); // Give USB CDC time to enumerate before doing anything else
 
   // --- GPIO ---
   pinMode(PIN_TFT_BL, OUTPUT);
   digitalWrite(PIN_TFT_BL, HIGH);
   pinMode(PIN_LED, OUTPUT);
-  digitalWrite(PIN_LED, HIGH);      // Off (active LOW)
+  digitalWrite(PIN_LED, LOW);  // Off (active LOW)
   pinMode(PIN_ENC_BTN, INPUT_PULLUP);
   pinMode(PIN_K0, INPUT_PULLUP);
 
-  // --- Display ---
-  tft.init();
-  tft.setRotation(1);               // Landscape: 320x240
-  tft.fillScreen(C_BG);
-  spr.createSprite(SCREEN_W, SCREEN_H);
+  // --- Display (disabled — no hardware connected) ---
+  // tft.init();
+  // tft.setRotation(1);
+  // tft.fillScreen(C_BG);
+  // spr.createSprite(SCREEN_W, SCREEN_H);
+  // tft.setTextDatum(MC_DATUM);
+  // tft.setTextColor(C_TEXT, C_BG);
+  // tft.drawString("Booting Radar...", SCREEN_W / 2, SCREEN_H / 2, 2);
 
-  // --- Boot splash ---
-  tft.setTextDatum(MC_DATUM);
-  tft.setTextColor(C_TEXT, C_BG);
-  tft.drawString("Booting Radar...", SCREEN_W / 2, SCREEN_H / 2, 2);
+  // --- Sensor (disabled — no hardware connected) ---
+  // Serial1.begin(256000, SERIAL_8N1, PIN_LD2410_RX, PIN_LD2410_TX);
+  // bool connected = ld2410.begin(Serial1);
+  // if (connected) Serial.println(F("LD2410 connected."));
+  // else Serial.println(F("LD2410 connection failed."));
 
-  // --- Sensor ---
-  Serial1.begin(256000, SERIAL_8N1, PIN_LD2410_RX, PIN_LD2410_TX);
-  bool connected = ld2410.begin(Serial1);
-
-  if (connected) Serial.println(F("LD2410 connected."));
-  else Serial.println(F("LD2410 connection failed."));
-
-  delay(500); // Brief splash visibility (only blocking delay — in setup, not loop)
+  Serial.println(F("Radar Gizmo booting (no-hardware debug mode)"));
 }
 
 void loop() {
   unsigned long now = millis();
-  ld2410.read();
+  // ld2410.read();
 
   // --- Heartbeat LED ---
   if (now - lastBlink >= HEARTBEAT_MS) {
@@ -146,8 +144,14 @@ void loop() {
   // --- Encoder rotation (view select) ---
   encoder.tick();
   int newPos = encoder.getPosition();
-  if (newPos > 1) { encoder.setPosition(1); newPos = 1; }
-  if (newPos < 0) { encoder.setPosition(0); newPos = 0; }
+  if (newPos > 1) {
+    encoder.setPosition(1);
+    newPos = 1;
+  }
+  if (newPos < 0) {
+    encoder.setPosition(0);
+    newPos = 0;
+  }
   currentView = newPos;
 
   // --- Encoder button (non-blocking debounce) ---
@@ -171,12 +175,12 @@ void loop() {
     }
   }
 
-  // --- Render UI ---
-  if (now - lastUpdate >= UPDATE_INTERVAL_MS) {
-    lastUpdate = now;
-    if (currentView == 0) drawDashboard();
-    else drawEngineeringView();
-  }
+  // --- Render UI (disabled — no hardware connected) ---
+  // if (now - lastUpdate >= UPDATE_INTERVAL_MS) {
+  //   lastUpdate = now;
+  //   if (currentView == 0) drawDashboard();
+  //   else drawEngineeringView();
+  // }
 }
 
 // --- View 0: Dashboard ---
@@ -328,7 +332,7 @@ void drawEngineeringView() {
 
   // Firmware version
   spr.setTextColor(C_DIM, C_BG);
-  snprintf(buf, sizeof(buf), "FW: v%d.%d", ld2410.firmwareMajorVersion, ld2410.firmwareMinorVersion);
+  snprintf(buf, sizeof(buf), "FW: v%d.%d", ld2410.firmware_major_version, ld2410.firmware_minor_version);
   spr.drawString(buf, 10, y, 2);
 
   // Footer
