@@ -29,8 +29,9 @@
 - `src/main.cpp` — primary source of truth (PlatformIO / generic)
 - `arduino/RadarGizmo/RadarGizmo.ino` — Arduino IDE compatible copy
 - `esphome/radar-gizmo.yaml` — ESPHome / Home Assistant version
-- **When changing firmware code, always update all three files.** The .ino is identical to main.cpp except for the extended header comment block. The ESPHome YAML replicates the same UI and sensor logic using ESPHome's display lambda and component system.
-- If unsure, diff the .cpp and .ino after editing to verify they are in sync. For the ESPHome YAML, verify that display views, sensor readings, and input handling match the firmware behavior.
+- **During development, only edit the .ino file.** At commit time, ask the user whether to sync `main.cpp` before committing.
+- The .ino is identical to main.cpp except for the extended header comment block. The ESPHome YAML replicates the same UI and sensor logic using ESPHome's display lambda and component system.
+- If syncing, diff the .cpp and .ino after editing to verify they match. For the ESPHome YAML, verify that display views, sensor readings, and input handling match the firmware behavior.
 
 ## Feature Parity
 - The bare-metal firmware (main.cpp / .ino) and the ESPHome version must stay at feature parity for display views, sensor data, and input handling

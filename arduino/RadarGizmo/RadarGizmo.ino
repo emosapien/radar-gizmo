@@ -99,6 +99,7 @@ RotaryEncoder encoder(PIN_ENC_A, PIN_ENC_B, RotaryEncoder::LatchMode::TWO03);
 // --- State ---
 bool displayReady = false;
 bool sensorReady = false;
+int sprH = SCREEN_H;  // Actual sprite height (may be smaller than SCREEN_H)
 int currentView = 0;  // 0 = Dashboard, 1 = Engineering
 unsigned long lastUpdate = 0;
 bool ledState = false;
@@ -113,6 +114,26 @@ unsigned long lastK0BtnChange = 0;
 // Radar sweep animation
 int sweepAngle = 0;
 int sweepDir = 1;
+
+// Sensor config fetch (one-shot after connection)
+bool sensorConfigFetched = false;
+
+// Radar pings (updated every 2s)
+#define PING_INTERVAL_MS 2000
+#define PING_ANGLE_MOV -50  // 10 o'clock
+#define PING_ANGLE_STA  50  // 2 o'clock
+unsigned long lastPing = 0;
+int pingMoveDist = 0, pingMoveEnergy = 0;
+int pingStatDist = 0, pingStatEnergy = 0;
+bool pingMoveActive = false, pingStatActive = false;
+float pingAge = 1.0f;  // 0.0 = just pinged, 1.0 = fully faded
+
+// Smoothed sensor values (exponential moving average)
+float smoothMoveDist = 0;
+float smoothStatDist = 0;
+float smoothMoveEnergy = 0;
+float smoothStatEnergy = 0;
+#define SMOOTH_ALPHA 0.3f  // 0.0 = frozen, 1.0 = no smoothing
 
 // Text buffer for snprintf
 char buf[64];
@@ -154,22 +175,16 @@ void setup() {
   tft.fillScreen(C_BG);
   Serial.println(F("OK"));
 
-  snprintf(buf, sizeof(buf), "[init] Sprite (%dx%d)... ", SCREEN_W, SCREEN_H);
+  spr.setColorDepth(8);  // 8-bit color halves sprite memory (76KB vs 153KB)
+  snprintf(buf, sizeof(buf), "[init] Sprite %dx%d @8bpp... ", SCREEN_W, SCREEN_H);
   Serial.print(buf);
   void *sprPtr = spr.createSprite(SCREEN_W, SCREEN_H);
   if (sprPtr) {
     Serial.println(F("OK"));
+    sprH = SCREEN_H;
     displayReady = true;
   } else {
-    snprintf(buf, sizeof(buf), "FAILED — trying %dx%d", SCREEN_W, SCREEN_H / 2);
-    Serial.println(buf);
-    sprPtr = spr.createSprite(SCREEN_W, SCREEN_H / 2);
-    if (sprPtr) {
-      Serial.println(F("[init] Half-sprite OK"));
-      displayReady = true;
-    } else {
-      Serial.println(F("[init] Sprite alloc FAILED — display disabled"));
-    }
+    Serial.println(F("FAILED — display disabled"));
   }
 
   // Boot splash (draw direct to TFT, no sprite needed)
@@ -220,6 +235,13 @@ void loop() {
 
   // Only read sensor if it initialized
   if (sensorReady) radar.read();
+
+  // Fetch config/firmware info once sensor is connected
+  if (sensorReady && !sensorConfigFetched && radar.isConnected()) {
+    radar.requestFirmwareVersion();
+    radar.requestCurrentConfiguration();
+    sensorConfigFetched = true;
+  }
 
   // --- Heartbeat LED ---
   if (now - lastBlink >= HEARTBEAT_MS) {
@@ -285,6 +307,14 @@ void drawDashboard() {
   uint16_t dotColor = (sensorReady && radar.isConnected()) ? C_SAFE : C_ALERT;
   spr.fillCircle(SCREEN_W - 20, 14, 4, dotColor);
 
+  // --- Update smoothed values ---
+  if (sensorReady) {
+    smoothMoveDist   = smoothMoveDist   * (1 - SMOOTH_ALPHA) + radar.movingTargetDistance()    * SMOOTH_ALPHA;
+    smoothStatDist   = smoothStatDist   * (1 - SMOOTH_ALPHA) + radar.stationaryTargetDistance() * SMOOTH_ALPHA;
+    smoothMoveEnergy = smoothMoveEnergy * (1 - SMOOTH_ALPHA) + radar.movingTargetEnergy()      * SMOOTH_ALPHA;
+    smoothStatEnergy = smoothStatEnergy * (1 - SMOOTH_ALPHA) + radar.stationaryTargetEnergy()  * SMOOTH_ALPHA;
+  }
+
   // --- Left side: Status + Distance ---
   spr.setTextDatum(middle_left);
   if (!sensorReady) {
@@ -303,12 +333,12 @@ void drawDashboard() {
     spr.setTextFont(2);
     int y = 110;
     if (radar.movingTargetDetected()) {
-      snprintf(buf, sizeof(buf), "MOV: %dcm", radar.movingTargetDistance());
+      snprintf(buf, sizeof(buf), "MOV: %dcm", (int)smoothMoveDist);
       spr.drawString(buf, 10, y);
       y += 20;
     }
     if (radar.stationaryTargetDetected()) {
-      snprintf(buf, sizeof(buf), "STA: %dcm", radar.stationaryTargetDistance());
+      snprintf(buf, sizeof(buf), "STA: %dcm", (int)smoothStatDist);
       spr.drawString(buf, 10, y);
     }
   } else {
@@ -321,16 +351,17 @@ void drawDashboard() {
   // --- Right side: Energy bars ---
   int barW = 24;
   int barMaxH = 120;
-  int barBottom = 195;
-  int barRightBase = SCREEN_W - 30;
+  int barTop = 30;
+  int barBottom = barTop + barMaxH;
+  int barRightBase = SCREEN_W - 10;
 
-  int moveEnergy = sensorReady ? radar.movingTargetEnergy() : 0;
-  int staticEnergy = sensorReady ? radar.stationaryTargetEnergy() : 0;
+  int moveEnergy = sensorReady ? (int)smoothMoveEnergy : 0;
+  int staticEnergy = sensorReady ? (int)smoothStatEnergy : 0;
 
   // Moving energy bar
-  int mX = barRightBase - barW - 40;
+  int mX = barRightBase - barW * 2 - 8;
   int mH = map(moveEnergy, 0, 100, 0, barMaxH);
-  spr.drawRect(mX, barBottom - barMaxH, barW, barMaxH, C_TEXT);
+  spr.drawRect(mX, barTop, barW, barMaxH, C_TEXT);
   spr.fillRect(mX, barBottom - mH, barW, mH, C_BAR_MOV);
   spr.setTextDatum(top_center);
   spr.setTextColor(C_BAR_MOV, C_BG);
@@ -342,29 +373,29 @@ void drawDashboard() {
   // Static energy bar
   int sX = barRightBase - barW;
   int sH = map(staticEnergy, 0, 100, 0, barMaxH);
-  spr.drawRect(sX, barBottom - barMaxH, barW, barMaxH, C_TEXT);
+  spr.drawRect(sX, barTop, barW, barMaxH, C_TEXT);
   spr.fillRect(sX, barBottom - sH, barW, sH, C_BAR_STA);
   spr.setTextColor(C_BAR_STA, C_BG);
   snprintf(buf, sizeof(buf), "%d%%", staticEnergy);
   spr.drawString(buf, sX + barW / 2, barBottom + 4);
   spr.drawString("STA", sX + barW / 2, barBottom + 16);
 
-  // --- Radar sweep animation (bottom-left arc) ---
+  // --- Radar sweep animation (bottom-center arc) ---
   sweepAngle += 4 * sweepDir;
   if (sweepAngle > 60) sweepDir = -1;
   if (sweepAngle < -60) sweepDir = 1;
 
-  int arcCx = 100;
-  int arcCy = SCREEN_H + 30;  // Center below screen edge for half-arc look
-  int arcR = 80;
+  int arcCx = SCREEN_W / 2;
+  int arcCy = sprH;       // Center at bottom edge for half-arc look
+  int arcR = 90;
 
-  // Draw range rings
-  for (int r = 30; r <= arcR; r += 25) {
+  // Draw range rings (brighter color that survives 8-bit depth)
+  for (int r = 30; r <= arcR; r += 22) {
     for (int a = -60; a <= 60; a += 3) {
       float rad = radians(a - 90);
       int px = arcCx + cos(rad) * r;
       int py = arcCy + sin(rad) * r;
-      if (py < SCREEN_H) spr.drawPixel(px, py, 0x18E3);
+      if (py < sprH - 16) spr.drawPixel(px, py, 0x39E7);
     }
   }
 
@@ -374,11 +405,60 @@ void drawDashboard() {
   int endY = arcCy + sin(sweepRad) * arcR;
   spr.drawLine(arcCx, arcCy, endX, endY, C_SWEEP);
 
+  // --- Radar pings ---
+  unsigned long now2 = millis();
+  if (now2 - lastPing >= PING_INTERVAL_MS) {
+    lastPing = now2;
+    pingMoveActive = sensorReady && radar.movingTargetDetected();
+    pingStatActive = sensorReady && radar.stationaryTargetDetected();
+    if (pingMoveActive) {
+      pingMoveDist   = (int)smoothMoveDist;
+      pingMoveEnergy = (int)smoothMoveEnergy;
+    }
+    if (pingStatActive) {
+      pingStatDist   = (int)smoothStatDist;
+      pingStatEnergy = (int)smoothStatEnergy;
+    }
+  }
+  // Ping age: 0.0 = just fired, 1.0 = about to refresh
+  pingAge = (float)(now2 - lastPing) / PING_INTERVAL_MS;
+
+  // Draw pings as filled circles on the arc
+  // Distance → radial position: 0-200cm = ring1..ring2, 200-1000cm = ring2..beyond ring3
+  auto distToRadius = [](int distCm) -> int {
+    if (distCm <= 200) return map(distCm, 0, 200, 30, 52);
+    return map(constrain(distCm, 200, 1000), 200, 1000, 52, 82);
+  };
+  // Energy → ping dot size (higher energy = bigger dot), shrinks as ping ages
+  auto energyToSize = [&](int energy) -> int {
+    int maxR = map(constrain(energy, 0, 100), 0, 100, 2, 8);
+    return max(1, (int)(maxR * (1.0f - pingAge * 0.6f)));
+  };
+
+  if (pingMoveActive) {
+    int pr = distToRadius(pingMoveDist);
+    float prad = radians(PING_ANGLE_MOV - 90);
+    int px = arcCx + cos(prad) * pr;
+    int py = arcCy + sin(prad) * pr;
+    if (py < sprH - 16) {
+      spr.fillCircle(px, py, energyToSize(pingMoveEnergy), C_BAR_MOV);
+    }
+  }
+  if (pingStatActive) {
+    int pr = distToRadius(pingStatDist);
+    float prad = radians(PING_ANGLE_STA - 90);
+    int px = arcCx + cos(prad) * pr;
+    int py = arcCy + sin(prad) * pr;
+    if (py < sprH - 16) {
+      spr.fillCircle(px, py, energyToSize(pingStatEnergy), C_BAR_STA);
+    }
+  }
+
   // Footer
   spr.setTextDatum(bottom_center);
   spr.setTextColor(C_DIM, C_BG);
   spr.setTextFont(1);
-  spr.drawString("[Turn] View  [K0] Toggle", SCREEN_W / 2, SCREEN_H - 4);
+  spr.drawString("[Turn] View  [K0] Toggle", SCREEN_W / 2, sprH - 2);
 
   spr.pushSprite(0, 0);
 }
@@ -396,8 +476,8 @@ void drawEngineeringView() {
   uint16_t dotColor = (sensorReady && radar.isConnected()) ? C_SAFE : C_ALERT;
   spr.fillCircle(SCREEN_W - 20, 14, 4, dotColor);
 
-  int y = 38;
-  int lh = 22;
+  int y = 32;
+  int lh = 18;
 
   if (!sensorReady) {
     spr.setTextColor(C_DIM, C_BG);
@@ -407,7 +487,7 @@ void drawEngineeringView() {
     spr.setTextColor(C_TEXT, C_BG);
     snprintf(buf, sizeof(buf), "Detection: %s", radar.presenceDetected() ? "YES" : "NO");
     spr.drawString(buf, 10, y);
-    y += lh + 6;
+    y += lh + 4;
 
     // Moving target
     spr.setTextColor(C_BAR_MOV, C_BG);
@@ -419,7 +499,7 @@ void drawEngineeringView() {
     y += lh;
     snprintf(buf, sizeof(buf), "  Energy: %d%%", radar.movingTargetEnergy());
     spr.drawString(buf, 10, y);
-    y += lh + 6;
+    y += lh + 4;
 
     // Stationary target
     spr.setTextColor(C_BAR_STA, C_BG);
@@ -431,11 +511,26 @@ void drawEngineeringView() {
     y += lh;
     snprintf(buf, sizeof(buf), "  Energy: %d%%", radar.stationaryTargetEnergy());
     spr.drawString(buf, 10, y);
-    y += lh + 10;
+    y += lh + 6;
+
+    // Configuration
+    spr.setTextColor(C_ACCENT, C_BG);
+    spr.drawString("CONFIG", 10, y);
+    y += lh;
+    spr.setTextColor(C_TEXT, C_BG);
+    snprintf(buf, sizeof(buf), "  Max gate: %d (mov %d / sta %d)",
+             radar.max_gate, radar.max_moving_gate, radar.max_stationary_gate);
+    spr.drawString(buf, 10, y);
+    y += lh;
+    snprintf(buf, sizeof(buf), "  Idle timeout: %ds", radar.sensor_idle_time);
+    spr.drawString(buf, 10, y);
+    y += lh + 4;
 
     // Firmware version
     spr.setTextColor(C_DIM, C_BG);
-    snprintf(buf, sizeof(buf), "FW: v%d.%d", radar.firmware_major_version, radar.firmware_minor_version);
+    snprintf(buf, sizeof(buf), "FW: v%d.%02d.%08X",
+             radar.firmware_major_version, radar.firmware_minor_version,
+             radar.firmware_bugfix_version);
     spr.drawString(buf, 10, y);
   }
 
@@ -443,7 +538,7 @@ void drawEngineeringView() {
   spr.setTextDatum(bottom_center);
   spr.setTextColor(C_DIM, C_BG);
   spr.setTextFont(1);
-  spr.drawString("[Turn] View  [K0] Toggle", SCREEN_W / 2, SCREEN_H - 4);
+  spr.drawString("[Turn] View  [K0] Toggle", SCREEN_W / 2, sprH - 4);
 
   spr.pushSprite(0, 0);
 }
