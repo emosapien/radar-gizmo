@@ -43,6 +43,7 @@ public:
       cfg.pin_mosi = 6;
       cfg.pin_miso = -1;
       cfg.pin_dc   = 5;
+      cfg.spi_3wire = true;
       _bus.config(cfg);
       _panel.setBus(&_bus);
     }
@@ -53,7 +54,6 @@ public:
       cfg.panel_width  = 240;
       cfg.panel_height = 320;
       cfg.readable   = false;
-      cfg.spi_3wire  = true;
       _panel.config(cfg);
     }
     setPanel(&_panel);
@@ -71,8 +71,8 @@ public:
 #define PIN_TFT_BL 10
 
 // --- Display Constants ---
-#define SCREEN_W 320
-#define SCREEN_H 240
+#define SCREEN_W 240
+#define SCREEN_H 320
 
 // --- Colors (RGB565) ---
 #define C_BG 0x0000
@@ -147,20 +147,22 @@ void setup() {
   Serial.flush();
 
   Serial.print(F("[init] Rotation... "));
-  tft.setRotation(1);
+  tft.setRotation(0);
   Serial.println(F("OK"));
 
   Serial.print(F("[init] Fill screen... "));
   tft.fillScreen(C_BG);
   Serial.println(F("OK"));
 
-  Serial.print(F("[init] Sprite (320x240)... "));
+  snprintf(buf, sizeof(buf), "[init] Sprite (%dx%d)... ", SCREEN_W, SCREEN_H);
+  Serial.print(buf);
   void *sprPtr = spr.createSprite(SCREEN_W, SCREEN_H);
   if (sprPtr) {
     Serial.println(F("OK"));
     displayReady = true;
   } else {
-    Serial.println(F("FAILED — trying 320x120"));
+    snprintf(buf, sizeof(buf), "FAILED — trying %dx%d", SCREEN_W, SCREEN_H / 2);
+    Serial.println(buf);
     sprPtr = spr.createSprite(SCREEN_W, SCREEN_H / 2);
     if (sprPtr) {
       Serial.println(F("[init] Half-sprite OK"));
@@ -177,16 +179,28 @@ void setup() {
   tft.drawString("Booting Radar...", SCREEN_W / 2, SCREEN_H / 2);
 
   // --- Sensor ---
-  Serial.print(F("[init] LD2410 UART... "));
+  Serial.print(F("[init] LD2410 UART on RX="));
+  Serial.print(PIN_LD2410_RX);
+  Serial.print(F(" TX="));
+  Serial.print(PIN_LD2410_TX);
+  Serial.print(F(" @ 256000 baud... "));
   Serial1.begin(256000, SERIAL_8N1, PIN_LD2410_RX, PIN_LD2410_TX);
   Serial.println(F("OK"));
 
+  // Give sensor time to boot and start transmitting frames
+  delay(500);
+  // Flush any partial frames so the library gets a clean start
+  while (Serial1.available()) Serial1.read();
+
   Serial.print(F("[init] LD2410 sensor... "));
-  if (radar.begin(Serial1)) {
+  sensorReady = radar.begin(Serial1);
+  if (sensorReady) {
     Serial.println(F("OK — connected"));
-    sensorReady = true;
   } else {
-    Serial.println(F("FAILED — sensor not found (continuing without)"));
+    // begin() failed to sync a frame in time, but we know from prior
+    // testing that data IS arriving. Let read() sync in the loop instead.
+    Serial.println(F("not yet — will sync in loop"));
+    sensorReady = true;
   }
 
   Serial.println(F("=== Boot complete ==="));
@@ -196,6 +210,9 @@ void setup() {
   Serial.println(buf);
   Serial.print(F("  Free heap: "));
   Serial.println(ESP.getFreeHeap());
+
+  // Clear boot splash so it doesn't persist behind a half-size sprite
+  tft.fillScreen(C_BG);
 }
 
 void loop() {

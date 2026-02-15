@@ -38,6 +38,7 @@ public:
       cfg.pin_mosi = 6;
       cfg.pin_miso = -1;
       cfg.pin_dc   = 5;
+      cfg.spi_3wire = true;
       _bus.config(cfg);
       _panel.setBus(&_bus);
     }
@@ -48,7 +49,6 @@ public:
       cfg.panel_width  = 240;
       cfg.panel_height = 320;
       cfg.readable   = false;
-      cfg.spi_3wire  = true;
       _panel.config(cfg);
     }
     setPanel(&_panel);
@@ -66,8 +66,8 @@ public:
 #define PIN_TFT_BL    10
 
 // --- Display Constants ---
-#define SCREEN_W      320
-#define SCREEN_H      240
+#define SCREEN_W      240
+#define SCREEN_H      320
 
 // --- Colors (RGB565) ---
 #define C_BG          0x0000
@@ -127,7 +127,7 @@ void setup() {
 
   // --- Display ---
   tft.init();
-  tft.setRotation(1);               // Landscape: 320x240
+  tft.setRotation(0);               // Portrait: 240x320
   tft.fillScreen(C_BG);
   spr.createSprite(SCREEN_W, SCREEN_H);
 
@@ -139,12 +139,17 @@ void setup() {
 
   // --- Sensor ---
   Serial1.begin(256000, SERIAL_8N1, PIN_LD2410_RX, PIN_LD2410_TX);
+  delay(500);
+  while (Serial1.available()) Serial1.read();
   bool connected = ld2410.begin(Serial1);
 
   if (connected) Serial.println(F("LD2410 connected."));
-  else Serial.println(F("LD2410 connection failed."));
+  else Serial.println(F("LD2410 not yet synced — will sync in loop."));
 
   delay(500); // Brief splash visibility (only blocking delay — in setup, not loop)
+
+  // Clear boot splash so it doesn't persist behind a half-size sprite
+  tft.fillScreen(C_BG);
 }
 
 void loop() {
