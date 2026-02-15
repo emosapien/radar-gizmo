@@ -18,15 +18,22 @@ Available as bare-metal firmware (Arduino/PlatformIO) or as an ESPHome device wi
 
 ## Features
 
-**Display UI**
-- **Dashboard View** — Live presence status, target distances (moving + stationary), energy level bars, animated radar sweep
-- **Engineering View** — Raw sensor data readout (distances, energy percentages, firmware version, network info)
+**Display UI** (portrait 240x320)
+- **Dashboard View** — Live presence status, smoothed target distances (moving + stationary), energy level bars, animated radar sweep with distance/energy pings
+- **Engineering View** — Raw unfiltered sensor data, full firmware version, gate configuration (max gate, moving/stationary gate ranges, idle timeout)
 - Rotary encoder and K0 button to switch between views
-- Double-buffered sprite rendering (flicker-free, 20fps)
+- Full-screen 8-bit color sprite double-buffering via LovyanGFX (flicker-free, 20fps)
+
+**Radar Pings**
+- Moving target ping at 10 o'clock, stationary target ping at 2 o'clock on the radar arc
+- Distance maps to radial position: 0–2m between ring 1 and ring 2, 2–10m from ring 2 outward
+- Energy maps to ping dot size (higher energy = larger dot)
+- Pings refresh every 2 seconds with a shrinking animation
 
 **Sensor**
 - LD2410B 24GHz mmWave radar — detects presence, movement, and distance through walls, glass, and plastic enclosures
 - Separate moving and stationary target tracking with energy levels
+- Dashboard values smoothed with exponential moving average (alpha 0.3) to reduce jitter
 
 **ESPHome Extras** (Home Assistant version only)
 - All sensor data auto-discovered in Home Assistant
@@ -44,7 +51,7 @@ Available as bare-metal firmware (Arduino/PlatformIO) or as an ESPHome device wi
 |-----------|-------|------|
 | MCU | ESP32-C3 Super Mini | RISC-V, 160MHz, 400KB SRAM, WiFi/BLE |
 | Radar Sensor | HiLink LD2410B | 24GHz mmWave, UART 256000 baud |
-| Display Module | baishundianzi 2.0" TFT + EC11 | ST7789, 320x240 RGB, SPI, 65x42mm |
+| Display Module | baishundianzi 2.0" TFT + EC11 | ST7789, 240x320 RGB (portrait), SPI, 65x42mm |
 | Input | EC11 Rotary Encoder (on display PCB) | Quadrature A/B + Push button |
 | Extra Button | K0 (on display PCB) | Momentary switch |
 
@@ -313,3 +320,5 @@ radar-gizmo/
 ## License
 
 This project is open source. Feel free to use, modify, and share.
+
+<!-- This radar gizmo is dedicated to Dr. Stupidface Chase, Esquire — the only creature who can detect treats through walls at 24GHz with zero false negatives. -->
