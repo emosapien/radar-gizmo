@@ -109,18 +109,18 @@ Three implementations are maintained at feature parity for display and sensor be
 
 ### Bare-Metal Firmware (`src/main.cpp`)
 
-The primary source of truth. Single-file C++ firmware using TFT_eSPI, LD2410, and RotaryEncoder libraries. Sprite double-buffered rendering, non-blocking input handling, no WiFi overhead.
+The primary source of truth. Single-file C++ firmware using LovyanGFX, LD2410, and RotaryEncoder libraries. Sprite double-buffered rendering, non-blocking input handling, no WiFi overhead.
 
 **Best for:** Lowest latency, no network dependency, standalone operation.
 
 **Dependencies:**
-- [TFT_eSPI](https://github.com/Bodmer/TFT_eSPI) by Bodmer
+- [LovyanGFX](https://github.com/lovyan03/LovyanGFX) by lovyan03
 - [ld2410](https://github.com/ncmreynolds/ld2410) by ncmreynolds
 - [RotaryEncoder](https://github.com/mathertel/RotaryEncoder) by Matthias Hertel
 
 ### Arduino IDE Version (`arduino/RadarGizmo/RadarGizmo.ino`)
 
-Identical code to `src/main.cpp`, packaged as an Arduino sketch with setup instructions in the header comment (library installs, TFT_eSPI `User_Setup.h` configuration).
+Identical code to `src/main.cpp`, packaged as an Arduino sketch with setup instructions in the header comment. Display configuration is inline via the LGFX class (no external config file needed).
 
 **Best for:** Users who prefer the Arduino IDE workflow.
 
@@ -271,17 +271,16 @@ The ESP32-C3 straddles the center gap at the top of the breadboard with USB-C ha
 # Clone and flash
 git clone https://github.com/emosapien/radar-gizmo.git
 cd radar-gizmo
-# Add platformio.ini and configure TFT_eSPI, then:
+# Add platformio.ini with LovyanGFX dependency, then:
 pio run -t upload
 ```
 
 ### Bare-Metal (Arduino IDE)
 
 1. Open `arduino/RadarGizmo/RadarGizmo.ino`
-2. Install libraries via Library Manager: **TFT_eSPI**, **ld2410**, **RotaryEncoder**
-3. Edit TFT_eSPI `User_Setup.h` (see header comment in .ino file for exact values)
-4. Select board **ESP32C3 Dev Module**, enable **USB CDC On Boot**, set **Flash Mode: DIO**
-5. Upload
+2. Install libraries via Library Manager: **LovyanGFX**, **ld2410**, **RotaryEncoder**
+3. Select board **ESP32C3 Dev Module**, enable **USB CDC On Boot**, set **Flash Mode: DIO**
+4. Upload (display pin config is handled inline by the LGFX class — no external setup file needed)
 
 ### ESPHome
 

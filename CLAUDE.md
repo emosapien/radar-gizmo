@@ -18,7 +18,7 @@
 - Use `snprintf` with char buffers instead of Arduino `String` concatenation in loops (avoids heap fragmentation)
 - Use non-blocking patterns (`millis()` comparisons) — never use `delay()` in the main loop
 - Keep all pin definitions as `#define` constants at the top of the file
-- Use TFT_eSPI sprite double-buffering for all screen draws
+- Use LovyanGFX sprite double-buffering for all screen draws
 
 ## Architecture
 - Single-file firmware in `src/main.cpp` (split into separate files only when complexity demands it)

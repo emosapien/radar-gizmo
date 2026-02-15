@@ -16,30 +16,49 @@
  * Holding either LOW during power-on enters download mode (black screen).
  *
  * --- REQUIRED LIBRARIES (install via Library Manager) ---
- * - TFT_eSPI by Bodmer         (configure User_Setup.h — see below)
+ * - LovyanGFX by lovyan03      (display driver with native ESP32-C3 support)
  * - ld2410 by ncmreynolds
  * - RotaryEncoder by Matthias Hertel
- *
- * --- TFT_eSPI User_Setup.h CHANGES REQUIRED ---
- * You must edit the TFT_eSPI User_Setup.h file (in the library folder) with:
- *
- *   #define ST7789_DRIVER
- *   #define TFT_WIDTH  240
- *   #define TFT_HEIGHT 320
- *   #define TFT_MOSI   6
- *   #define TFT_SCLK   4
- *   #define TFT_CS     7
- *   #define TFT_DC     5
- *   #define TFT_RST    3
- *   #define SPI_FREQUENCY  40000000
- *
- * Comment out any other driver defines (ILI9341, ST7735, etc.)
  */
 
 #include <SPI.h>
-#include <TFT_eSPI.h>
+#include <LovyanGFX.hpp>
 #include <ld2410.h>
 #include <RotaryEncoder.h>
+
+// --- LovyanGFX display configuration ---
+class LGFX : public lgfx::LGFX_Device {
+  lgfx::Panel_ST7789 _panel;
+  lgfx::Bus_SPI _bus;
+
+public:
+  LGFX(void) {
+    {
+      auto cfg = _bus.config();
+      cfg.spi_host = SPI2_HOST;
+      cfg.spi_mode = 0;
+      cfg.freq_write = 40000000;
+      cfg.freq_read  = 16000000;
+      cfg.pin_sclk = 4;
+      cfg.pin_mosi = 6;
+      cfg.pin_miso = -1;
+      cfg.pin_dc   = 5;
+      _bus.config(cfg);
+      _panel.setBus(&_bus);
+    }
+    {
+      auto cfg = _panel.config();
+      cfg.pin_cs  = 7;
+      cfg.pin_rst = 3;
+      cfg.panel_width  = 240;
+      cfg.panel_height = 320;
+      cfg.readable   = false;
+      cfg.spi_3wire  = true;
+      _panel.config(cfg);
+    }
+    setPanel(&_panel);
+  }
+};
 
 // --- Pin Definitions ---
 #define PIN_LD2410_RX 20
@@ -72,12 +91,14 @@
 #define DEBOUNCE_MS 30
 
 // --- Objects ---
-TFT_eSPI tft = TFT_eSPI();
-TFT_eSprite spr = TFT_eSprite(&tft);
-ld2410 ld2410;
+LGFX tft;
+LGFX_Sprite spr(&tft);
+ld2410 radar;
 RotaryEncoder encoder(PIN_ENC_A, PIN_ENC_B, RotaryEncoder::LatchMode::TWO03);
 
 // --- State ---
+bool displayReady = false;
+bool sensorReady = false;
 int currentView = 0;  // 0 = Dashboard, 1 = Engineering
 unsigned long lastUpdate = 0;
 bool ledState = false;
@@ -102,37 +123,86 @@ void drawEngineeringView();
 
 void setup() {
   Serial.begin(115200);
-  delay(2000); // Give USB CDC time to enumerate before doing anything else
+  delay(3000);  // USB CDC enumeration time
+  Serial.println(F("=== Radar Gizmo starting ==="));
+  Serial.flush();
 
   // --- GPIO ---
+  Serial.println(F("[init] GPIO..."));
+  Serial.flush();
   pinMode(PIN_TFT_BL, OUTPUT);
   digitalWrite(PIN_TFT_BL, HIGH);
   pinMode(PIN_LED, OUTPUT);
-  digitalWrite(PIN_LED, LOW);  // Off (active LOW)
+  digitalWrite(PIN_LED, HIGH);  // Off (active LOW)
   pinMode(PIN_ENC_BTN, INPUT_PULLUP);
   pinMode(PIN_K0, INPUT_PULLUP);
+  Serial.println(F("[init] GPIO OK"));
+  Serial.flush();
 
-  // --- Display (disabled — no hardware connected) ---
-  // tft.init();
-  // tft.setRotation(1);
-  // tft.fillScreen(C_BG);
-  // spr.createSprite(SCREEN_W, SCREEN_H);
-  // tft.setTextDatum(MC_DATUM);
-  // tft.setTextColor(C_TEXT, C_BG);
-  // tft.drawString("Booting Radar...", SCREEN_W / 2, SCREEN_H / 2, 2);
+  // --- Display ---
+  Serial.println(F("[init] TFT starting..."));
+  Serial.flush();
+  tft.init();
+  Serial.println(F("[init] TFT OK"));
+  Serial.flush();
 
-  // --- Sensor (disabled — no hardware connected) ---
-  // Serial1.begin(256000, SERIAL_8N1, PIN_LD2410_RX, PIN_LD2410_TX);
-  // bool connected = ld2410.begin(Serial1);
-  // if (connected) Serial.println(F("LD2410 connected."));
-  // else Serial.println(F("LD2410 connection failed."));
+  Serial.print(F("[init] Rotation... "));
+  tft.setRotation(1);
+  Serial.println(F("OK"));
 
-  Serial.println(F("Radar Gizmo booting (no-hardware debug mode)"));
+  Serial.print(F("[init] Fill screen... "));
+  tft.fillScreen(C_BG);
+  Serial.println(F("OK"));
+
+  Serial.print(F("[init] Sprite (320x240)... "));
+  void *sprPtr = spr.createSprite(SCREEN_W, SCREEN_H);
+  if (sprPtr) {
+    Serial.println(F("OK"));
+    displayReady = true;
+  } else {
+    Serial.println(F("FAILED — trying 320x120"));
+    sprPtr = spr.createSprite(SCREEN_W, SCREEN_H / 2);
+    if (sprPtr) {
+      Serial.println(F("[init] Half-sprite OK"));
+      displayReady = true;
+    } else {
+      Serial.println(F("[init] Sprite alloc FAILED — display disabled"));
+    }
+  }
+
+  // Boot splash (draw direct to TFT, no sprite needed)
+  tft.setTextDatum(middle_center);
+  tft.setTextColor(C_TEXT, C_BG);
+  tft.setTextFont(2);
+  tft.drawString("Booting Radar...", SCREEN_W / 2, SCREEN_H / 2);
+
+  // --- Sensor ---
+  Serial.print(F("[init] LD2410 UART... "));
+  Serial1.begin(256000, SERIAL_8N1, PIN_LD2410_RX, PIN_LD2410_TX);
+  Serial.println(F("OK"));
+
+  Serial.print(F("[init] LD2410 sensor... "));
+  if (radar.begin(Serial1)) {
+    Serial.println(F("OK — connected"));
+    sensorReady = true;
+  } else {
+    Serial.println(F("FAILED — sensor not found (continuing without)"));
+  }
+
+  Serial.println(F("=== Boot complete ==="));
+  snprintf(buf, sizeof(buf), "  Display: %s", displayReady ? "YES" : "NO");
+  Serial.println(buf);
+  snprintf(buf, sizeof(buf), "  Sensor:  %s", sensorReady ? "YES" : "NO");
+  Serial.println(buf);
+  Serial.print(F("  Free heap: "));
+  Serial.println(ESP.getFreeHeap());
 }
 
 void loop() {
   unsigned long now = millis();
-  // ld2410.read();
+
+  // Only read sensor if it initialized
+  if (sensorReady) radar.read();
 
   // --- Heartbeat LED ---
   if (now - lastBlink >= HEARTBEAT_MS) {
@@ -160,7 +230,7 @@ void loop() {
     lastEncBtnChange = now;
     lastEncBtn = encBtn;
     if (encBtn) {
-      Serial.println(F("Encoder Pushed"));
+      Serial.println(F("[input] Encoder pushed"));
     }
   }
 
@@ -172,15 +242,16 @@ void loop() {
     if (k0Btn) {
       currentView = (currentView == 0) ? 1 : 0;
       encoder.setPosition(currentView);
+      Serial.println(F("[input] K0 pressed — view toggled"));
     }
   }
 
-  // --- Render UI (disabled — no hardware connected) ---
-  // if (now - lastUpdate >= UPDATE_INTERVAL_MS) {
-  //   lastUpdate = now;
-  //   if (currentView == 0) drawDashboard();
-  //   else drawEngineeringView();
-  // }
+  // --- Render UI ---
+  if (displayReady && (now - lastUpdate >= UPDATE_INTERVAL_MS)) {
+    lastUpdate = now;
+    if (currentView == 0) drawDashboard();
+    else drawEngineeringView();
+  }
 }
 
 // --- View 0: Dashboard ---
@@ -189,37 +260,45 @@ void drawDashboard() {
 
   // Header bar
   spr.setTextColor(C_TEXT, C_BG);
-  spr.setTextDatum(TL_DATUM);
-  spr.drawString("RADAR GIZMO", 10, 8, 2);
+  spr.setTextDatum(top_left);
+  spr.setTextFont(2);
+  spr.drawString("RADAR GIZMO", 10, 8);
 
   // Connection indicator
-  uint16_t dotColor = ld2410.isConnected() ? C_SAFE : C_ALERT;
+  uint16_t dotColor = (sensorReady && radar.isConnected()) ? C_SAFE : C_ALERT;
   spr.fillCircle(SCREEN_W - 20, 14, 4, dotColor);
 
   // --- Left side: Status + Distance ---
-  spr.setTextDatum(ML_DATUM);
-  if (ld2410.presenceDetected()) {
+  spr.setTextDatum(middle_left);
+  if (!sensorReady) {
+    spr.setTextColor(C_DIM, C_BG);
+    spr.setTextFont(4);
+    spr.drawString("NO", 10, 50);
+    spr.drawString("SENSOR", 10, 80);
+  } else if (radar.presenceDetected()) {
     spr.setTextColor(C_ALERT, C_BG);
-    spr.drawString("TARGET", 10, 50, 4);
-    spr.drawString("DETECTED", 10, 80, 4);
+    spr.setTextFont(4);
+    spr.drawString("TARGET", 10, 50);
+    spr.drawString("DETECTED", 10, 80);
 
-    // Show both distances when available
     spr.setTextColor(C_TEXT, C_BG);
-    spr.setTextDatum(TL_DATUM);
+    spr.setTextDatum(top_left);
+    spr.setTextFont(2);
     int y = 110;
-    if (ld2410.movingTargetDetected()) {
-      snprintf(buf, sizeof(buf), "MOV: %dcm", ld2410.movingTargetDistance());
-      spr.drawString(buf, 10, y, 2);
+    if (radar.movingTargetDetected()) {
+      snprintf(buf, sizeof(buf), "MOV: %dcm", radar.movingTargetDistance());
+      spr.drawString(buf, 10, y);
       y += 20;
     }
-    if (ld2410.stationaryTargetDetected()) {
-      snprintf(buf, sizeof(buf), "STA: %dcm", ld2410.stationaryTargetDistance());
-      spr.drawString(buf, 10, y, 2);
+    if (radar.stationaryTargetDetected()) {
+      snprintf(buf, sizeof(buf), "STA: %dcm", radar.stationaryTargetDistance());
+      spr.drawString(buf, 10, y);
     }
   } else {
     spr.setTextColor(C_SAFE, C_BG);
-    spr.drawString("AREA", 10, 50, 4);
-    spr.drawString("CLEAR", 10, 80, 4);
+    spr.setTextFont(4);
+    spr.drawString("AREA", 10, 50);
+    spr.drawString("CLEAR", 10, 80);
   }
 
   // --- Right side: Energy bars ---
@@ -228,19 +307,20 @@ void drawDashboard() {
   int barBottom = 195;
   int barRightBase = SCREEN_W - 30;
 
-  int moveEnergy = ld2410.movingTargetEnergy();
-  int staticEnergy = ld2410.stationaryTargetEnergy();
+  int moveEnergy = sensorReady ? radar.movingTargetEnergy() : 0;
+  int staticEnergy = sensorReady ? radar.stationaryTargetEnergy() : 0;
 
   // Moving energy bar
   int mX = barRightBase - barW - 40;
   int mH = map(moveEnergy, 0, 100, 0, barMaxH);
   spr.drawRect(mX, barBottom - barMaxH, barW, barMaxH, C_TEXT);
   spr.fillRect(mX, barBottom - mH, barW, mH, C_BAR_MOV);
-  spr.setTextDatum(TC_DATUM);
+  spr.setTextDatum(top_center);
   spr.setTextColor(C_BAR_MOV, C_BG);
+  spr.setTextFont(1);
   snprintf(buf, sizeof(buf), "%d%%", moveEnergy);
-  spr.drawString(buf, mX + barW / 2, barBottom + 4, 1);
-  spr.drawString("MOV", mX + barW / 2, barBottom + 16, 1);
+  spr.drawString(buf, mX + barW / 2, barBottom + 4);
+  spr.drawString("MOV", mX + barW / 2, barBottom + 16);
 
   // Static energy bar
   int sX = barRightBase - barW;
@@ -249,8 +329,8 @@ void drawDashboard() {
   spr.fillRect(sX, barBottom - sH, barW, sH, C_BAR_STA);
   spr.setTextColor(C_BAR_STA, C_BG);
   snprintf(buf, sizeof(buf), "%d%%", staticEnergy);
-  spr.drawString(buf, sX + barW / 2, barBottom + 4, 1);
-  spr.drawString("STA", sX + barW / 2, barBottom + 16, 1);
+  spr.drawString(buf, sX + barW / 2, barBottom + 4);
+  spr.drawString("STA", sX + barW / 2, barBottom + 16);
 
   // --- Radar sweep animation (bottom-left arc) ---
   sweepAngle += 4 * sweepDir;
@@ -278,9 +358,10 @@ void drawDashboard() {
   spr.drawLine(arcCx, arcCy, endX, endY, C_SWEEP);
 
   // Footer
-  spr.setTextDatum(BC_DATUM);
+  spr.setTextDatum(bottom_center);
   spr.setTextColor(C_DIM, C_BG);
-  spr.drawString("[Turn] View  [K0] Toggle", SCREEN_W / 2, SCREEN_H - 4, 1);
+  spr.setTextFont(1);
+  spr.drawString("[Turn] View  [K0] Toggle", SCREEN_W / 2, SCREEN_H - 4);
 
   spr.pushSprite(0, 0);
 }
@@ -290,55 +371,62 @@ void drawEngineeringView() {
   spr.fillSprite(C_BG);
 
   spr.setTextColor(C_TEXT, C_BG);
-  spr.setTextDatum(TL_DATUM);
-  spr.drawString("RAW SENSOR DATA", 10, 8, 2);
+  spr.setTextDatum(top_left);
+  spr.setTextFont(2);
+  spr.drawString("RAW SENSOR DATA", 10, 8);
 
   // Connection indicator
-  uint16_t dotColor = ld2410.isConnected() ? C_SAFE : C_ALERT;
+  uint16_t dotColor = (sensorReady && radar.isConnected()) ? C_SAFE : C_ALERT;
   spr.fillCircle(SCREEN_W - 20, 14, 4, dotColor);
 
   int y = 38;
   int lh = 22;
 
-  // Detection status
-  spr.setTextColor(C_TEXT, C_BG);
-  snprintf(buf, sizeof(buf), "Detection: %s", ld2410.presenceDetected() ? "YES" : "NO");
-  spr.drawString(buf, 10, y, 2);
-  y += lh + 6;
+  if (!sensorReady) {
+    spr.setTextColor(C_DIM, C_BG);
+    spr.drawString("Sensor not connected", 10, y);
+  } else {
+    // Detection status
+    spr.setTextColor(C_TEXT, C_BG);
+    snprintf(buf, sizeof(buf), "Detection: %s", radar.presenceDetected() ? "YES" : "NO");
+    spr.drawString(buf, 10, y);
+    y += lh + 6;
 
-  // Moving target
-  spr.setTextColor(C_BAR_MOV, C_BG);
-  spr.drawString("MOVING TARGET", 10, y, 2);
-  y += lh;
-  spr.setTextColor(C_TEXT, C_BG);
-  snprintf(buf, sizeof(buf), "  Dist: %d cm", ld2410.movingTargetDistance());
-  spr.drawString(buf, 10, y, 2);
-  y += lh;
-  snprintf(buf, sizeof(buf), "  Energy: %d%%", ld2410.movingTargetEnergy());
-  spr.drawString(buf, 10, y, 2);
-  y += lh + 6;
+    // Moving target
+    spr.setTextColor(C_BAR_MOV, C_BG);
+    spr.drawString("MOVING TARGET", 10, y);
+    y += lh;
+    spr.setTextColor(C_TEXT, C_BG);
+    snprintf(buf, sizeof(buf), "  Dist: %d cm", radar.movingTargetDistance());
+    spr.drawString(buf, 10, y);
+    y += lh;
+    snprintf(buf, sizeof(buf), "  Energy: %d%%", radar.movingTargetEnergy());
+    spr.drawString(buf, 10, y);
+    y += lh + 6;
 
-  // Stationary target
-  spr.setTextColor(C_BAR_STA, C_BG);
-  spr.drawString("STATIC TARGET", 10, y, 2);
-  y += lh;
-  spr.setTextColor(C_TEXT, C_BG);
-  snprintf(buf, sizeof(buf), "  Dist: %d cm", ld2410.stationaryTargetDistance());
-  spr.drawString(buf, 10, y, 2);
-  y += lh;
-  snprintf(buf, sizeof(buf), "  Energy: %d%%", ld2410.stationaryTargetEnergy());
-  spr.drawString(buf, 10, y, 2);
-  y += lh + 10;
+    // Stationary target
+    spr.setTextColor(C_BAR_STA, C_BG);
+    spr.drawString("STATIC TARGET", 10, y);
+    y += lh;
+    spr.setTextColor(C_TEXT, C_BG);
+    snprintf(buf, sizeof(buf), "  Dist: %d cm", radar.stationaryTargetDistance());
+    spr.drawString(buf, 10, y);
+    y += lh;
+    snprintf(buf, sizeof(buf), "  Energy: %d%%", radar.stationaryTargetEnergy());
+    spr.drawString(buf, 10, y);
+    y += lh + 10;
 
-  // Firmware version
-  spr.setTextColor(C_DIM, C_BG);
-  snprintf(buf, sizeof(buf), "FW: v%d.%d", ld2410.firmware_major_version, ld2410.firmware_minor_version);
-  spr.drawString(buf, 10, y, 2);
+    // Firmware version
+    spr.setTextColor(C_DIM, C_BG);
+    snprintf(buf, sizeof(buf), "FW: v%d.%d", radar.firmware_major_version, radar.firmware_minor_version);
+    spr.drawString(buf, 10, y);
+  }
 
   // Footer
-  spr.setTextDatum(BC_DATUM);
+  spr.setTextDatum(bottom_center);
   spr.setTextColor(C_DIM, C_BG);
-  spr.drawString("[Turn] View  [K0] Toggle", SCREEN_W / 2, SCREEN_H - 4, 1);
+  spr.setTextFont(1);
+  spr.drawString("[Turn] View  [K0] Toggle", SCREEN_W / 2, SCREEN_H - 4);
 
   spr.pushSprite(0, 0);
 }
